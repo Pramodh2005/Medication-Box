@@ -1,0 +1,164 @@
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>
+#include <RTClib.h>
+
+#define BUZZER_PIN 8          // Buzzer pin
+#define LED_SLOT1 9           // LED for Slot 1 (morning)
+#define LED_SLOT2 10          // LED for Slot 2 (afternoon)
+#define LED_SLOT3 11          // LED for Slot 3 (evening)
+#define TRIG_PIN 6            // Ultrasonic sensor trigger pin
+#define ECHO_PIN 7            // Ultrasonic sensor echo pin
+#define BUTTON_INC_HOUR 2     // Button to increase hour
+#define BUTTON_INC_MIN 3      // Button to increase minute
+#define BUTTON_SELECT_SLOT 4  // Button to select slot
+#define BUTTON_CONFIRM 5      // Button to confirm the setting
+
+RTC_DS3231 rtc;
+LiquidCrystal_I2C lcd(0x27, 16, 2); // Set LCD address and size
+
+int medicationHours[3] = {13, 13, 13};   // Default medication times (8:00 AM, 2:00 PM, 8:00 PM)
+int medicationMinutes[3] = {40, 40, 40};   // Default to on-the-hour
+bool medicationTaken[3] = {false, false, false}; // Track if medication was taken for each slot
+int currentSlot = 0; // 0 = Slot 1, 1 = Slot 2, 2 = Slot 3
+bool settingMode = true; // Start in setting mode
+
+unsigned long medicationStartTime[3] = {0, 0, 0}; // Track when the medication reminder starts for each slot
+const long medicationAlertDuration = 600000; // 10 minutes in milliseconds
+const int boxOpenDistanceThreshold = 10; // Threshold for box being opened (in cm)
+
+void setup() {
+  pinMode(BUZZER_PIN, OUTPUT);
+  pinMode(LED_SLOT1, OUTPUT);
+  pinMode(LED_SLOT2, OUTPUT);
+  pinMode(LED_SLOT3, OUTPUT);
+  pinMode(TRIG_PIN, OUTPUT);
+  pinMode(ECHO_PIN, INPUT);
+  pinMode(BUTTON_INC_HOUR, INPUT_PULLUP);
+  pinMode(BUTTON_INC_MIN, INPUT_PULLUP);
+  pinMode(BUTTON_SELECT_SLOT, INPUT_PULLUP);
+  pinMode(BUTTON_CONFIRM, INPUT_PULLUP);
+
+  lcd.begin(16, 2);
+  lcd.backlight();
+
+  if (!rtc.begin()) {
+    lcd.print("RTC error!");
+    while (1);
+  }
+
+  lcd.print("Medication Box");
+  delay(2000);
+  lcd.clear();
+  displayCurrentSettings();
+}
+
+void loop() {
+  if (settingMode) {
+    // Allow time setting via buttons
+    checkButtonPresses();
+  } else {
+    // Monitoring mode
+    DateTime now = rtc.now();
+    checkMedicationTime(now);
+    checkBoxStatus();
+    delay(100); // Small delay for responsiveness
+  }
+}
+
+void checkButtonPresses() {
+  if (digitalRead(BUTTON_INC_HOUR) == LOW) {
+    delay(200); // Debounce
+    medicationHours[currentSlot] = (medicationHours[currentSlot] + 1) % 24;
+    displayCurrentSettings();
+  }
+
+  if (digitalRead(BUTTON_INC_MIN) == LOW) {
+    delay(200); // Debounce
+    medicationMinutes[currentSlot] = (medicationMinutes[currentSlot] + 1) % 60;
+    displayCurrentSettings();
+  }
+
+  if (digitalRead(BUTTON_SELECT_SLOT) == LOW) {
+    delay(200); // Debounce
+    currentSlot = (currentSlot + 1) % 3;
+    displayCurrentSettings();
+  }
+
+  if (digitalRead(BUTTON_CONFIRM) == LOW) {
+    delay(200); // Debounce
+    lcd.clear();
+    lcd.print("Settings Saved!");
+    delay(2000); // Display message
+    settingMode = false; // Switch to monitoring mode
+    lcd.clear();
+  }
+}
+
+void displayCurrentSettings() {
+  lcd.clear();
+  lcd.print("Set Slot ");
+  lcd.print(currentSlot + 1);
+  lcd.setCursor(0, 1);
+  lcd.print("Time: ");
+  lcd.print(medicationHours[currentSlot]);
+  lcd.print(":");
+  if (medicationMinutes[currentSlot] < 10) lcd.print("0");
+  lcd.print(medicationMinutes[currentSlot]);
+}
+
+void checkMedicationTime(DateTime now) {
+  for (int i = 0; i < 3; i++) {
+    int medHour = medicationHours[i];
+    int medMinute = medicationMinutes[i];
+    int currentTimeInMinutes = now.hour() * 60 + now.minute();
+    int medTimeInMinutes = medHour * 60 + medMinute;
+
+    if (currentTimeInMinutes >= medTimeInMinutes && currentTimeInMinutes < (medTimeInMinutes + 10) && !medicationTaken[i]) {
+      if (medicationStartTime[i] == 0) {
+        medicationStartTime[i] = millis();
+        digitalWrite(BUZZER_PIN, HIGH);
+      }
+      digitalWrite(LED_SLOT1 + i, HIGH);
+      lcd.clear();
+      lcd.print("Take Medication!");
+      lcd.setCursor(0, 1);
+      lcd.print("Slot ");
+      lcd.print(i + 1);
+    }
+  }
+}
+
+void checkBoxStatus() {
+  long distance = measureDistance();
+  if (distance > boxOpenDistanceThreshold) { // Box is opened if distance is greater than threshold
+    for (int i = 0; i < 3; i++) {
+
+      if (digitalRead(LED_SLOT1 + i) == HIGH && !medicationTaken[i]) { // Check if the LED for a slot is on
+      medicationTaken[i] = true; // Mark medication as taken
+      digitalWrite(BUZZER_PIN, LOW); // Turn off buzzer
+      lcd.clear();
+      lcd.print("Medication Taken");
+      delay(2000); // Show "Medication Taken" message
+      lcd.clear();
+      digitalWrite(LED_SLOT1 + i, HIGH); // Turn off the LED for that slot
+      }
+    }
+  } else if (distance <= boxOpenDistanceThreshold) { // Box is closed
+    for (int i = 0; i < 3; i++) {
+      if (digitalRead(LED_SLOT1 + i) == HIGH) {
+        digitalWrite(LED_SLOT1 + i, LOW);
+         // Turn off the LED if box is closed
+      }
+    }
+  }
+}
+
+long measureDistance() {
+  digitalWrite(TRIG_PIN, LOW);
+  delayMicroseconds(2);
+  digitalWrite(TRIG_PIN, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(TRIG_PIN, LOW);
+  long duration = pulseIn(ECHO_PIN, HIGH);
+  return duration * 0.034 / 2;
+}
