@@ -29,11 +29,6 @@ This project provides a simple, cost-effective IoT-based solution designed to he
 - Event-driven logic to activate and reset alerts
 - Infinite loop structure for continuous monitoring
 
-## 📷 Images
-
-- **Figure 6**: Medication Box View
-- **Figure 7**: Internal Setup with Sensor and Slot LEDs
-
 ## 📚 How It Works
 
 1. System checks the current time using RTC.
@@ -42,11 +37,6 @@ This project provides a simple, cost-effective IoT-based solution designed to he
 3. Waits for the box to open (via ultrasonic sensor).
 4. If box opened:
    - Deactivates alerts and resets for next dose.
-
-## 📌 Limitations
-
-- No live tracking or remote monitoring features.
-- Works only for predefined time-based schedules.
 
 ## 📎 Conclusion
 
